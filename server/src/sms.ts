@@ -38,7 +38,7 @@ export async function sendTextbelt(key: string, to: string, body: string, fetchI
     }
     // Out of credit, bad number, blocked content: retrying won't help.
     console.error(`Textbelt refused text to ${maskPhone(to)}: ${json.error ?? `HTTP ${response.status}`}`);
-    return { ok: false, retryable: false, status: response.status };
+    return { ok: false, retryable: false, status: response.status, reason: json.error ? `Textbelt: ${json.error}` : undefined };
   } catch (error) {
     console.error(`Could not reach Textbelt for ${maskPhone(to)}: ${(error as Error).message}`);
     return { ok: false, retryable: true };

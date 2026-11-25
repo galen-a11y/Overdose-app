@@ -113,7 +113,7 @@ describe('textbelt', () => {
 
   it('treats a refusal as final and an outage as retryable', async () => {
     const refused = async () => new Response(JSON.stringify({ success: false, error: 'Out of quota' }), { status: 200 });
-    assert.deepEqual(await sendTextbelt('KEY', '+15035550101', 'x', refused), { ok: false, retryable: false, status: 200 });
+    assert.deepEqual(await sendTextbelt('KEY', '+15035550101', 'x', refused), { ok: false, retryable: false, status: 200, reason: 'Textbelt: Out of quota' });
     const down = async () => new Response('', { status: 503 });
     assert.deepEqual(await sendTextbelt('KEY', '+15035550101', 'x', down), { ok: false, retryable: true, status: 503 });
     const offline = async (): Promise<Response> => { throw new Error('network'); };

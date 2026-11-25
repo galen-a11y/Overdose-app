@@ -8,7 +8,8 @@ export interface TwilioConfig {
   DRY_RUN?: string;
 }
 
-export type SendResult = { ok: true } | { ok: false; retryable: boolean; status?: number };
+/** `reason` is a short, number-free explanation safe to show in the app. */
+export type SendResult = { ok: true } | { ok: false; retryable: boolean; status?: number; reason?: string };
 
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -22,7 +23,7 @@ export async function sendText(config: TwilioConfig, to: string, body: string, f
   const token = config.TWILIO_AUTH_TOKEN;
   if (!sid || !token || (!config.TWILIO_FROM && !config.TWILIO_MESSAGING_SERVICE_SID)) {
     console.error('No text service configured: set TEXTBELT_KEY, or the Twilio secrets');
-    return { ok: false, retryable: false };
+    return { ok: false, retryable: false, reason: 'The server has no text service set up.' };
   }
 
   const form = new URLSearchParams({ To: to, Body: body });

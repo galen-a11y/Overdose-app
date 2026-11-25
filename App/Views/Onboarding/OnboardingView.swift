@@ -311,7 +311,7 @@ private struct TestStep: View {
             defer { sending = false }
             do {
                 let results = try await server.sendTest(firstName: firstName, contacts: contacts)
-                if results.contains(where: { !$0.sent }) { error = "Some texts didn't send. Check the numbers." }
+                if let failed = results.first(where: { !$0.sent }) { error = failed.error ?? "Some texts didn't send. Check the numbers." }
                 withAnimation { sent = true }
             } catch {
                 self.error = error.localizedDescription

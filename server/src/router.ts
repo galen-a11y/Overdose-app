@@ -117,7 +117,7 @@ async function sendSetupTexts(
     }
     const body = buildMessage(kind, { firstName, timeZone: 'UTC', now: deps.now(), contactName: contact.name });
     const outcome = await deps.send(contact.phone, body);
-    results.push({ phone: contact.phone, sent: outcome.ok, error: outcome.ok ? undefined : 'text could not be sent' });
+    results.push({ phone: contact.phone, sent: outcome.ok, error: outcome.ok ? undefined : (outcome.reason ?? 'text could not be sent') });
   }
   return json(200, { results });
 }
