@@ -6,7 +6,7 @@ import SwiftUI
 struct ContactsEditor: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.server) private var server
-    let header: String
+    let header: String?
 
     @State private var name = ""
     @State private var phone = ""
@@ -15,8 +15,10 @@ struct ContactsEditor: View {
 
     var body: some View {
         List {
-            Section {
-                Text(header).font(.subheadline)
+            if let header {
+                Section {
+                    Text(header).font(.subheadline)
+                }
             }
 
             Section("Contacts") {
@@ -24,19 +26,23 @@ struct ContactsEditor: View {
                     Text("No contacts yet").foregroundStyle(.secondary)
                 }
                 ForEach(store.data.contacts) { contact in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text(contact.name).font(.headline)
-                            if contact.testConfirmed {
-                                Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
-                                    .accessibilityLabel("Test confirmed")
+                    HStack(spacing: 12) {
+                        InitialsAvatar(name: contact.name, size: 40)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(contact.name).font(.headline)
+                                if contact.testConfirmed {
+                                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.good)
+                                        .accessibilityLabel("Test confirmed")
+                                }
+                            }
+                            Text(PhoneNumber.display(contact.phone)).font(.subheadline).foregroundStyle(.secondary)
+                            if let status = welcomeStatus[contact.id] {
+                                Text(status).font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        Text(PhoneNumber.display(contact.phone)).font(.subheadline).foregroundStyle(.secondary)
-                        if let status = welcomeStatus[contact.id] {
-                            Text(status).font(.caption).foregroundStyle(.secondary)
-                        }
                     }
+                    .padding(.vertical, 2)
                 }
                 .onDelete { offsets in store.data.contacts.remove(atOffsets: offsets) }
             }
@@ -51,8 +57,10 @@ struct ContactsEditor: View {
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(.red)
                     }
-                    Button("Add contact", action: add)
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || phone.isEmpty)
+                    Button(action: add) {
+                        Label("Add contact", systemImage: "plus.circle.fill").font(.headline)
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || phone.isEmpty)
                 } header: {
                     Text("Add a contact")
                 } footer: {

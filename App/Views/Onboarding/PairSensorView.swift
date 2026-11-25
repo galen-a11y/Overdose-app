@@ -11,8 +11,11 @@ struct PairSensorView: View {
     var body: some View {
         List {
             Section {
-                Text("Turn the oximeter on by putting it on your finger. It should show up below within a few seconds.")
-                    .font(.subheadline)
+                HStack(alignment: .top, spacing: 14) {
+                    IconBadge(systemName: "sensor.fill", size: 48)
+                    Text("Put the oximeter on your finger to turn it on. It should show up below within a few seconds.")
+                        .font(.subheadline)
+                }
                 if let problem = scanner.bluetoothProblem {
                     WarningRow(text: problem, severity: .problem)
                 }
@@ -23,18 +26,24 @@ struct PairSensorView: View {
                     VStack(spacing: 12) {
                         Text(hub.sensorName).font(.headline)
                         Text(hub.status.label).font(.subheadline).foregroundStyle(.secondary)
-                        ReadingDisplay(reading: hub.latest, quality: hub.latest?.quality(minimumPerfusionIndex: store.data.alertSettings.minimumPerfusionIndex))
-                            .scaleEffect(0.7)
+                        OxygenRing(
+                            spo2: hub.latest?.spo2,
+                            threshold: store.data.alertSettings.lowSpO2Threshold,
+                            quality: hub.latest?.quality(minimumPerfusionIndex: store.data.alertSettings.minimumPerfusionIndex),
+                            size: 150
+                        )
+                        PulseTile(pulse: hub.latest?.pulseRate)
                         if hasValidReading {
-                            Label("Reading looks good", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                            Label("Reading looks good", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.good).font(.headline)
                         } else {
                             Text("Waiting for a reading. Keep your hand still.").font(.footnote).foregroundStyle(.secondary)
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    Button("Use this oximeter") { onDone() }
-                        .font(.headline)
+                    BigButton(title: "Use this oximeter", systemImage: "checkmark") { onDone() }
                         .disabled(!hasValidReading)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
                 }
             }
 

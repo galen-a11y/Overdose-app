@@ -15,8 +15,12 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("You") {
-                    TextField("First name", text: $store.data.firstName)
-                        .textContentType(.givenName)
+                    Label {
+                        TextField("First name", text: $store.data.firstName)
+                            .textContentType(.givenName)
+                    } icon: {
+                        Image(systemName: "person.fill")
+                    }
                 }
 
                 Section("Emergency contacts") {
@@ -24,10 +28,16 @@ struct SettingsView: View {
                         ContactsEditor(header: "Up to three people who get a text if you don't respond.")
                             .navigationTitle("Contacts")
                     } label: {
-                        LabeledContent("Contacts", value: "\(store.data.contacts.count)")
+                        Label {
+                            LabeledContent("Contacts", value: "\(store.data.contacts.count) of 3")
+                        } icon: {
+                            Image(systemName: "person.2.fill")
+                        }
                     }
-                    NavigationLink("Send a test text") {
+                    NavigationLink {
                         TestAlertPanel().navigationTitle("Test text")
+                    } label: {
+                        Label("Send a test text", systemImage: "paperplane.fill")
                     }
                 }
 
@@ -39,11 +49,15 @@ struct SettingsView: View {
                     if let battery = hub.batteryPercent {
                         LabeledContent("Battery", value: "about \(battery)%")
                     }
-                    NavigationLink("Pair a different oximeter") {
+                    NavigationLink {
                         PairSensorView(onDone: {})
+                    } label: {
+                        Label("Pair a different oximeter", systemImage: "sensor.fill")
                     }
-                    NavigationLink("Raw Bluetooth packets") {
+                    NavigationLink {
                         RawPacketView()
+                    } label: {
+                        Label("Raw Bluetooth packets", systemImage: "waveform.path.ecg")
                     }
                 }
 
@@ -74,7 +88,11 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    NavigationLink("About Spotter and safety") { SafetyInfoView() }
+                    NavigationLink {
+                        SafetyInfoView()
+                    } label: {
+                        Label("About Spotter and safety", systemImage: "info.circle.fill")
+                    }
                     Button("Erase all data on this phone", role: .destructive) { confirmErase = true }
                 }
             }
