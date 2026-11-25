@@ -25,7 +25,7 @@ struct SettingsView: View {
 
                 Section("Emergency contacts") {
                     NavigationLink {
-                        ContactsEditor(header: "Up to three people who get a text if you don't respond.")
+                        ContactsEditor()
                             .navigationTitle("Contacts")
                     } label: {
                         Label {
@@ -35,7 +35,7 @@ struct SettingsView: View {
                         }
                     }
                     NavigationLink {
-                        TestAlertPanel().navigationTitle("Test text")
+                        TestTextScreen()
                     } label: {
                         Label("Send a test text", systemImage: "paperplane.fill")
                     }
@@ -50,7 +50,7 @@ struct SettingsView: View {
                         LabeledContent("Battery", value: "about \(battery)%")
                     }
                     NavigationLink {
-                        PairSensorView(onDone: {})
+                        PairSensorView()
                     } label: {
                         Label("Pair a different oximeter", systemImage: "sensor.fill")
                     }
@@ -71,8 +71,6 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("Permissions")
-                } footer: {
-                    Text("Critical Alerts let the alarm sound with the phone on silent. They need approval from Apple before this app can use them.")
                 }
 
                 Section {
@@ -83,8 +81,6 @@ struct SettingsView: View {
                     .disabled(!store.data.useFakeSensor)
                 } header: {
                     Text("Developer")
-                } footer: {
-                    Text("The fake oximeter plays a scripted scenario so you can test check-ins and alerts without the device. Contacts are still texted for real if the server is set up.")
                 }
 
                 Section {
@@ -135,7 +131,7 @@ private struct AlertRulesSection: View {
         } header: {
             Text("Alert rules")
         } footer: {
-            Text("These starting settings are placeholders until a clinician reviews them. Changes apply to the next session.")
+            Text("Placeholders until a clinician reviews them.")
         }
     }
 }
@@ -156,7 +152,7 @@ struct RawPacketView: View {
                     Text(summary).font(.footnote)
                 }
             } footer: {
-                Text("Build step 1: confirm the device sends frames starting AA 55, that SpO2 and pulse here match the oximeter's own screen, and that checksum failures stay near zero.")
+                Text("Frames should start with AA 55 and match the oximeter's screen.")
             }
             Section("Newest first") {
                 ForEach(Array(hub.rawLog.enumerated()), id: \.offset) { _, line in
@@ -191,5 +187,18 @@ struct SafetyInfoView: View {
             }
         }
         .navigationTitle("About Spotter")
+    }
+}
+
+/// Test text from Settings.
+struct TestTextScreen: View {
+    @State private var sent = false
+
+    var body: some View {
+        ScrollView {
+            TestTextPanel(sent: $sent).padding()
+        }
+        .background(Theme.background)
+        .navigationTitle("Test text")
     }
 }

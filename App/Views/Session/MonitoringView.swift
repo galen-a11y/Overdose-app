@@ -1,13 +1,13 @@
 import SafetyCore
 import SwiftUI
 
-/// The screen during a session. Dark and calm, because it's often watched in
-/// a dim room; the numbers are big enough to read at arm's length.
+/// The screen during a session: a dark, quiet room with one number.
 /// Also shown while the session is starting up.
 struct MonitoringView: View {
     @EnvironmentObject private var session: SessionManager
     @EnvironmentObject private var hub: SensorHub
     @EnvironmentObject private var connectivity: ConnectivityMonitor
+    @State private var showTip = true
 
     private var isStarting: Bool {
         if case .starting = session.phase { return true }
@@ -16,125 +16,106 @@ struct MonitoringView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                StatusPill(text: status.text, color: status.color, pulsing: status.pulsing)
-                Spacer(minLength: 0)
-            }
-            .padding(.top, 8)
+            StatusPill(text: status.text, color: status.color, pulsing: true)
+                .padding(.top, 12)
 
-            Spacer(minLength: 12)
+            Spacer()
 
             ZStack {
                 OxygenRing(
                     spo2: hub.latest?.spo2,
                     threshold: session.engine.settings.lowSpO2Threshold,
                     quality: quality,
-                    size: 260,
-                    trackColor: Color.white.opacity(0.08)
+                    size: 270,
+                    trackColor: Color.white.opacity(0.07)
                 )
                 if isStarting, hub.latest?.spo2 == nil {
                     ProgressView().controlSize(.large).tint(.white)
                 }
             }
 
-            Spacer(minLength: 12)
-
-            HStack(spacing: 12) {
-                PulseTile(pulse: quality == .valid ? hub.latest?.pulseRate : nil)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .card(padding: 14, fill: Theme.nightSurface)
-                SignalBars(perfusionIndex: hub.latest?.perfusionIndex, minimum: session.engine.settings.minimumPerfusionIndex)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .card(padding: 14, fill: Theme.nightSurface)
+            HStack(spacing: 18) {
+                Label(pulseText, systemImage: "heart.fill")
+                    .symbolEffect(.pulse, options: .repeating, isActive: quality == .valid)
+                if let elapsed = elapsedText {
+                    Label(elapsed, systemImage: "clock")
+                }
             }
+            .font(.system(.title3, design: .rounded).weight(.medium))
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .padding(.top, 28)
 
-            if case let .starting(message) = session.phase {
-                Text(message)
-                    .font(.headline)
+            Spacer()
+
+            if let problem {
+                Text(problem)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.caution)
                     .multilineTextAlignment(.center)
-                    .padding(.top, 20)
-            } else {
-                timeRow.padding(.top, 12)
-            }
-
-            Spacer(minLength: 16)
-
-            VStack(spacing: 12) {
-                serverStatus
-                Text("You can lock your phone. Don't swipe Spotter away.")
-                    .font(.footnote)
+                    .padding(.bottom, 12)
+            } else if showTip, !isStarting {
+                Text("You can lock your phone. Keep Spotter open.")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    .transition(.opacity)
+                    .padding(.bottom, 12)
+            }
 
-                if isStarting {
-                    Button("Cancel") { session.cancelStart() }
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                } else {
-                    HoldToConfirmButton(title: "Hold to end session", systemImage: "stop.fill", tint: .white) {
-                        session.endSession()
-                    }
+            if isStarting {
+                Button("Cancel") { session.cancelStart() }
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 56)
+            } else {
+                HoldToConfirmButton(title: "Hold to end", tint: .white.opacity(0.8)) {
+                    session.endSession()
                 }
             }
         }
-        .padding()
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.night.ignoresSafeArea())
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                withAnimation { showTip = false }
+            }
+        }
     }
 
     private var quality: ReadingQuality? {
         hub.latest?.quality(minimumPerfusionIndex: session.engine.settings.minimumPerfusionIndex)
     }
 
-    private var status: (text: String, color: Color, pulsing: Bool) {
-        if isStarting { return ("Getting a steady reading", Theme.caution, true) }
-        if hub.status != .connected { return ("Oximeter disconnected", Theme.danger, true) }
+    private var pulseText: String {
+        guard quality == .valid, let pulse = hub.latest?.pulseRate else { return "--" }
+        return "\(pulse)"
+    }
+
+    private var elapsedText: String? {
+        guard !isStarting, let startedAt = session.startedAt else { return nil }
+        return Format.duration(session.now.timeIntervalSince(startedAt))
+    }
+
+    private var status: (text: String, color: Color) {
+        if isStarting { return ("Starting", Theme.caution) }
+        if hub.status != .connected { return ("Reconnecting", Theme.danger) }
         switch quality {
-        case .valid?: return ("Watching", Theme.good, true)
-        case .weak?: return ("Weak signal. Keep your hand still and warm.", Theme.caution, true)
-        case .noData?, nil: return ("No reading. Check your finger.", Theme.danger, true)
+        case .valid?: return ("Watching", Theme.good)
+        case .weak?: return ("Weak signal", Theme.caution)
+        case .noData?, nil: return ("No reading", Theme.danger)
         }
     }
 
-    private var timeRow: some View {
-        HStack(spacing: 12) {
-            if let startedAt = session.startedAt {
-                tile(value: Format.duration(session.now.timeIntervalSince(startedAt)), label: "Running", symbol: "clock")
-            }
-            if let endsAt = session.endsAt {
-                tile(value: Format.time(endsAt), label: "Ends at", symbol: "timer")
-            } else {
-                tile(value: "Until you end it", label: "No time limit", symbol: "infinity")
-            }
-        }
-    }
-
-    private func tile(value: String, label: String, symbol: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(value)
-                    .font(.system(.headline, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Text(label).font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card(padding: 14, fill: Theme.nightSurface)
-    }
-
-    @ViewBuilder
-    private var serverStatus: some View {
-        if !connectivity.isOnline {
-            WarningRow(text: "No internet. The alarm still works; texts send when you're back online.", severity: .problem)
-        } else if !isStarting, !session.serverSessionReady {
-            WarningRow(text: "Connecting to the text service…", severity: .caution)
-        } else if let battery = hub.batteryPercent, battery <= 33 {
-            WarningRow(text: "Oximeter battery is low.", severity: .caution)
-        }
+    /// One short line, only when something needs attention.
+    private var problem: String? {
+        if isStarting { return "Hold still for a moment." }
+        if !connectivity.isOnline { return "No internet. The alarm still works." }
+        if quality == .weak { return "Keep your hand still and warm." }
+        if hub.status == .connected, quality != .valid { return "Check the oximeter is on your finger." }
+        return nil
     }
 }

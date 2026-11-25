@@ -1,88 +1,58 @@
 import SafetyCore
 import SwiftUI
 
-/// Scan, tap the oximeter, confirm a live reading.
-struct PairSensorView: View {
+/// Finds the oximeter, connects, and shows the live number once it's reading.
+/// Used in setup and in Settings.
+struct OximeterPairing: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var hub: SensorHub
     @StateObject private var scanner = OximeterScanner()
-    let onDone: () -> Void
 
     var body: some View {
-        List {
-            Section {
-                HStack(alignment: .top, spacing: 14) {
-                    IconBadge(systemName: "sensor.fill", size: 48)
-                    Text("Put the oximeter on your finger to turn it on. It should show up below within a few seconds.")
-                        .font(.subheadline)
+        VStack(spacing: 16) {
+            if isPaired {
+                OxygenRing(
+                    spo2: hub.latest?.spo2,
+                    threshold: store.data.alertSettings.lowSpO2Threshold,
+                    quality: hub.latest?.quality(minimumPerfusionIndex: store.data.alertSettings.minimumPerfusionIndex),
+                    size: 180
+                )
+                .padding(.vertical, 8)
+                Text(isReading ? "Connected" : "Put it on your finger")
+                    .font(.headline)
+                    .foregroundStyle(isReading ? Theme.good : .secondary)
+                Button("Choose a different one") {
+                    store.data.pairedSensorID = nil
+                    store.data.useFakeSensor = false
                 }
+                .font(.subheadline)
+            } else {
                 if let problem = scanner.bluetoothProblem {
-                    WarningRow(text: problem, severity: .problem)
+                    Text(problem).font(.subheadline).foregroundStyle(Theme.danger)
                 }
-            }
-
-            if store.data.pairedSensorID != nil || store.data.useFakeSensor {
-                Section("Live reading") {
-                    VStack(spacing: 12) {
-                        Text(hub.sensorName).font(.headline)
-                        Text(hub.status.label).font(.subheadline).foregroundStyle(.secondary)
-                        OxygenRing(
-                            spo2: hub.latest?.spo2,
-                            threshold: store.data.alertSettings.lowSpO2Threshold,
-                            quality: hub.latest?.quality(minimumPerfusionIndex: store.data.alertSettings.minimumPerfusionIndex),
-                            size: 150
-                        )
-                        PulseTile(pulse: hub.latest?.pulseRate)
-                        if hasValidReading {
-                            Label("Reading looks good", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.good).font(.headline)
-                        } else {
-                            Text("Waiting for a reading. Keep your hand still.").font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    BigButton(title: "Use this oximeter", systemImage: "checkmark") { onDone() }
-                        .disabled(!hasValidReading)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                }
-            }
-
-            Section {
                 ForEach(scanner.visibleDevices) { device in
-                    Button {
-                        pair(device)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(device.name).font(.headline)
-                                Text(device.likelyOximeter ? "Looks like a Wellue / Viatom oximeter" : "Unknown device")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
+                    Button { pair(device) } label: {
+                        HStack(spacing: 12) {
+                            IconBadge(systemName: "sensor.fill", size: 40)
+                            Text(device.name).font(.headline)
                             Spacer()
-                            if device.id == store.data.pairedSensorID {
-                                Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
-                            }
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                         }
+                        .card(padding: 12)
                     }
-                    .foregroundStyle(.primary)
+                    .buttonStyle(.plain)
                 }
-                if scanner.visibleDevices.isEmpty {
-                    HStack { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }
+                if scanner.visibleDevices.isEmpty, scanner.bluetoothProblem == nil {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Looking…").foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 24)
                 }
-                Toggle("Show all Bluetooth devices", isOn: $scanner.showAllDevices)
-            } header: {
-                Text("Nearby oximeters")
-            } footer: {
-                Text("Built for the Wellue / Viatom PC-60FW family (sold as the Bluetooth OxySmart). Check the model on the label.")
-            }
-
-            Section {
-                Toggle("Use a fake oximeter (testing)", isOn: $store.data.useFakeSensor)
-            } footer: {
-                Text("For trying Spotter without the device. Pick a scenario in Settings > Developer.")
             }
         }
-        .navigationTitle("Pair your oximeter")
+        .frame(maxWidth: .infinity)
+        .animation(.default, value: isPaired)
         .onAppear {
             scanner.start()
             hub.acquire("pairing")
@@ -93,7 +63,9 @@ struct PairSensorView: View {
         }
     }
 
-    private var hasValidReading: Bool {
+    private var isPaired: Bool { store.data.pairedSensorID != nil || store.data.useFakeSensor }
+
+    var isReading: Bool {
         hub.latest?.quality(minimumPerfusionIndex: store.data.alertSettings.minimumPerfusionIndex) == .valid
     }
 
@@ -101,7 +73,16 @@ struct PairSensorView: View {
         store.data.useFakeSensor = false
         store.data.pairedSensorID = device.id
         store.data.pairedSensorName = device.name
-        // The hub rebuilds its sensor from the store change; start it once that lands.
         DispatchQueue.main.async { hub.acquire("pairing") }
+    }
+}
+
+/// Settings wrapper.
+struct PairSensorView: View {
+    var body: some View {
+        ScrollView {
+            OximeterPairing().padding()
+        }
+        .navigationTitle("Oximeter")
     }
 }

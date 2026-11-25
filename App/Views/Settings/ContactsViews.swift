@@ -1,160 +1,166 @@
 import SafetyCore
 import SwiftUI
 
-/// Add, remove and list emergency contacts. Each new contact gets a text
-/// saying they were added and what an alert means.
-struct ContactsEditor: View {
+/// Name and number fields with an Add button. Sends the new contact a
+/// "you've been added" text in the background.
+struct AddContactForm: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.server) private var server
-    let header: String?
-
     @State private var name = ""
     @State private var phone = ""
     @State private var error: String?
-    @State private var welcomeStatus: [UUID: String] = [:]
+    @FocusState private var focus: Field?
+
+    private enum Field { case name, phone }
 
     var body: some View {
-        List {
-            if let header {
-                Section {
-                    Text(header).font(.subheadline)
-                }
+        VStack(spacing: 10) {
+            TextField("Name", text: $name)
+                .textContentType(.name)
+                .submitLabel(.next)
+                .focused($focus, equals: .name)
+                .onSubmit { focus = .phone }
+                .fieldStyle()
+            TextField("Mobile number", text: $phone)
+                .keyboardType(.phonePad)
+                .textContentType(.telephoneNumber)
+                .focused($focus, equals: .phone)
+                .fieldStyle()
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(Theme.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            Section("Contacts") {
-                if store.data.contacts.isEmpty {
-                    Text("No contacts yet").foregroundStyle(.secondary)
-                }
-                ForEach(store.data.contacts) { contact in
-                    HStack(spacing: 12) {
-                        InitialsAvatar(name: contact.name, size: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(contact.name).font(.headline)
-                                if contact.testConfirmed {
-                                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.good)
-                                        .accessibilityLabel("Test confirmed")
-                                }
-                            }
-                            Text(PhoneNumber.display(contact.phone)).font(.subheadline).foregroundStyle(.secondary)
-                            if let status = welcomeStatus[contact.id] {
-                                Text(status).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-                .onDelete { offsets in store.data.contacts.remove(atOffsets: offsets) }
+            Button(action: add) {
+                Label("Add", systemImage: "plus")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
-
-            if store.data.contacts.count < EmergencyContact.maximumCount {
-                Section {
-                    TextField("Name", text: $name)
-                        .textContentType(.name)
-                    TextField("Mobile number", text: $phone)
-                        .keyboardType(.phonePad)
-                        .textContentType(.telephoneNumber)
-                    if let error {
-                        Text(error).font(.footnote).foregroundStyle(.red)
-                    }
-                    Button(action: add) {
-                        Label("Add contact", systemImage: "plus.circle.fill").font(.headline)
-                    }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || phone.isEmpty)
-                } header: {
-                    Text("Add a contact")
-                } footer: {
-                    Text("They'll get a text saying you added them. Ask them to keep naloxone (Narcan) handy and know how to use it.")
-                }
-            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle(radius: 14))
+            .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || phone.isEmpty)
         }
     }
 
     private func add() {
         guard let normalized = PhoneNumber.normalize(phone) else {
-            error = "That doesn't look like a mobile number. Include the area code."
+            error = "Check the number, including area code."
             return
         }
         guard !store.data.contacts.contains(where: { $0.phone == normalized }) else {
-            error = "That number is already a contact."
+            error = "Already added."
             return
         }
         let contact = EmergencyContact(name: name.trimmingCharacters(in: .whitespacesAndNewlines), phone: normalized)
-        store.data.contacts.append(contact)
+        withAnimation { store.data.contacts.append(contact) }
         name = ""
         phone = ""
         error = nil
-        sendWelcome(contact)
-    }
+        focus = nil
 
-    private func sendWelcome(_ contact: EmergencyContact) {
-        guard server.isConfigured else {
-            welcomeStatus[contact.id] = "Texting isn't set up in this build, so no welcome text was sent."
-            return
-        }
-        welcomeStatus[contact.id] = "Sending welcome text…"
+        guard server.isConfigured else { return }
         let firstName = store.data.firstName
-        Task { @MainActor in
-            do {
-                try await server.sendWelcome(firstName: firstName, contact: contact)
-                welcomeStatus[contact.id] = "Welcome text sent"
-            } catch {
-                welcomeStatus[contact.id] = "Couldn't send the welcome text: \(error.localizedDescription)"
+        let server = self.server
+        Task { try? await server.sendWelcome(firstName: firstName, contact: contact) }
+    }
+}
+
+/// One contact: initials, name, and a remove button.
+struct ContactRow: View {
+    let contact: EmergencyContact
+    var onRemove: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            InitialsAvatar(name: contact.name, size: 40)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(contact.name).font(.headline)
+                Text(PhoneNumber.display(contact.phone)).font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let onRemove {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(contact.name)")
             }
         }
     }
 }
 
-/// Sends the clearly labeled test text and lets the person mark who got it.
-struct TestAlertPanel: View {
+/// Contacts screen in Settings.
+struct ContactsEditor: View {
     @EnvironmentObject private var store: AppStore
-    @Environment(\.server) private var server
-    @State private var sending = false
-    @State private var results: [String: ServerClient.SetupResult] = [:]
-    @State private var error: String?
 
     var body: some View {
         List {
             Section {
-                Text("Send each contact a text marked TEST, then ask them if it arrived. This catches wrong numbers before you rely on Spotter.")
-                    .font(.subheadline)
-                Button {
-                    send()
-                } label: {
-                    HStack {
-                        Text(sending ? "Sending…" : "Send test text")
-                        if sending { Spacer(); ProgressView() }
-                    }
+                ForEach(store.data.contacts) { contact in
+                    ContactRow(contact: contact)
                 }
-                .disabled(sending || store.data.contacts.isEmpty)
-                if let error {
-                    Text(error).font(.footnote).foregroundStyle(.red)
+                .onDelete { store.data.contacts.remove(atOffsets: $0) }
+            }
+            if store.data.contacts.count < EmergencyContact.maximumCount {
+                Section("Add") {
+                    AddContactForm()
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                 }
             }
+        }
+        .navigationTitle("Contacts")
+    }
+}
 
-            Section("Did they get it?") {
-                ForEach($store.data.contacts) { $contact in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle(isOn: $contact.testConfirmed) {
-                            VStack(alignment: .leading) {
-                                Text(contact.name).font(.headline)
-                                Text(PhoneNumber.display(contact.phone)).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        if let result = results[contact.phone] {
-                            Text(result.sent ? "Sent" : (result.error ?? "Not sent"))
-                                .font(.caption)
-                                .foregroundStyle(result.sent ? Color.secondary : Color.red)
-                        }
+/// Sends the TEST text, then lets the person tick who got it.
+struct TestTextPanel: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.server) private var server
+    @Binding var sent: Bool
+    @State private var sending = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach($store.data.contacts) { $contact in
+                HStack(spacing: 12) {
+                    InitialsAvatar(name: contact.name, size: 40)
+                    Text(contact.name).font(.headline)
+                    Spacer()
+                    if sent {
+                        Toggle("Got it", isOn: $contact.testConfirmed)
+                            .labelsHidden()
+                            .accessibilityLabel("\(contact.name) got it")
                     }
                 }
+                .card(padding: 12)
+            }
+            if sent {
+                Text("Turn on each person who got it.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(Theme.danger)
+            }
+            if !sent {
+                Button(action: send) {
+                    HStack {
+                        if sending { ProgressView() }
+                        Text(sending ? "Sending" : "Send test text")
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 14))
+                .disabled(sending || store.data.contacts.isEmpty)
             }
         }
     }
 
     private func send() {
         guard server.isConfigured else {
-            error = ServerClient.ServerError.notConfigured.localizedDescription
+            error = "Texting isn't set up yet."
             return
         }
         sending = true
@@ -164,11 +170,22 @@ struct TestAlertPanel: View {
         Task { @MainActor in
             defer { sending = false }
             do {
-                let list = try await server.sendTest(firstName: firstName, contacts: contacts)
-                results = Dictionary(list.map { ($0.phone, $0) }, uniquingKeysWith: { a, _ in a })
+                let results = try await server.sendTest(firstName: firstName, contacts: contacts)
+                if results.contains(where: { !$0.sent }) { error = "Some texts didn't send. Check the numbers." }
+                withAnimation { sent = true }
             } catch {
                 self.error = error.localizedDescription
             }
         }
+    }
+}
+
+extension View {
+    /// Plain rounded text field look used in setup.
+    func fieldStyle() -> some View {
+        self
+            .font(.body)
+            .padding(14)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

@@ -1,291 +1,271 @@
 import SafetyCore
 import SwiftUI
 
-/// One-time setup: name, oximeter, contacts, permissions, test text.
+/// One-time setup, one question per screen.
 struct OnboardingView: View {
     enum Step: Int, CaseIterable {
-        case welcome, pair, contacts, permissions, test
+        case welcome, name, oximeter, contacts, permissions, test, done
     }
 
     @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var hub: SensorHub
+    @EnvironmentObject private var notifications: NotificationService
+    @EnvironmentObject private var location: LocationService
     @State private var step: Step = .welcome
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                StepProgress(current: step.rawValue, total: Step.allCases.count)
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                Group {
-                    switch step {
-                    case .welcome: WelcomeStep(next: advance)
-                    case .pair: PairStep(next: advance)
-                    case .contacts: ContactsStep(next: advance)
-                    case .permissions: PermissionsStep(next: advance)
-                    case .test: TestAlertStep(next: finish)
-                    }
-                }
-                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
-            }
-            .background(Theme.background.ignoresSafeArea())
-            .toolbar {
-                if step != .welcome {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            withAnimation { step = Step(rawValue: step.rawValue - 1) ?? .welcome }
-                        } label: {
-                            Label("Back", systemImage: "chevron.left")
-                        }
-                    }
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-
-    private func advance() {
-        withAnimation(.easeInOut) { step = Step(rawValue: step.rawValue + 1) ?? .test }
-    }
-
-    private func finish() {
-        withAnimation { store.data.onboardingComplete = true }
-    }
-}
-
-/// Segmented progress bar across the top of setup.
-private struct StepProgress: View {
-    let current: Int
-    let total: Int
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<total, id: \.self) { index in
-                Capsule()
-                    .fill(index <= current ? Theme.accent : Color.secondary.opacity(0.2))
-                    .frame(height: 5)
-            }
-        }
-        .animation(.easeInOut, value: current)
-        .accessibilityElement()
-        .accessibilityLabel("Step \(current + 1) of \(total)")
-    }
-}
-
-/// Shared layout: icon, title, subtitle, content, and a pinned main button.
-private struct StepScaffold<Content: View>: View {
-    let symbol: String
-    let title: String
-    let subtitle: String
-    let buttonTitle: String
-    var buttonEnabled = true
-    var footnote: String? = nil
-    let action: () -> Void
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                IconBadge(systemName: symbol, size: 64)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(title)
-                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(subtitle)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                content
-            }
-            .padding()
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 8) {
-                BigButton(title: buttonTitle, action: action)
-                    .disabled(!buttonEnabled)
-                if let footnote {
-                    Text(footnote).font(.footnote).foregroundStyle(.secondary)
-                }
-            }
-            .padding()
-            .background(.bar)
-        }
-    }
-}
-
-private struct WelcomeStep: View {
-    @EnvironmentObject private var store: AppStore
-    let next: () -> Void
-
-    var body: some View {
-        StepScaffold(
-            symbol: "dot.radiowaves.left.and.right",
-            title: "A spotter for when you use alone",
-            subtitle: "Takes about five minutes to set up. No account needed.",
-            buttonTitle: "Get started",
-            buttonEnabled: !store.data.firstName.trimmingCharacters(in: .whitespaces).isEmpty,
-            action: next
-        ) {
-            VStack(alignment: .leading, spacing: 16) {
-                feature("sensor.fill", "Watches your oxygen", "Through a Bluetooth fingertip oximeter.")
-                feature("bell.badge.fill", "Checks in loudly", "If something looks wrong, an alarm asks if you're OK.")
-                feature("message.fill", "Texts your people", "No answer in 30 seconds? Your contacts get your location.")
-            }
-            .card()
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Your first name").font(.headline)
-                TextField("First name", text: $store.data.firstName)
-                    .textContentType(.givenName)
-                    .font(.title3)
-                    .padding(14)
-                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .submitLabel(.continue)
-                    .onSubmit { if !store.data.firstName.isEmpty { next() } }
-                Text("Only used in texts to your contacts.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-
-            Label("Spotter is a backup, not a guarantee. Phones die and sensors slip.", systemImage: "hand.raised.fill")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func feature(_ symbol: String, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            IconBadge(systemName: symbol, size: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                Text(detail).font(.subheadline).foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
-private struct PairStep: View {
-    let next: () -> Void
-    var body: some View {
-        PairSensorView(onDone: next)
-    }
-}
-
-private struct ContactsStep: View {
-    @EnvironmentObject private var store: AppStore
-    let next: () -> Void
+    @State private var testSent = false
+    @FocusState private var nameFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                IconBadge(systemName: "person.2.fill", size: 56)
-                Text("Who should we text?")
-                    .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                Text("One to three people who can get to you quickly.")
-                    .foregroundStyle(.secondary)
+            topBar
+            Group {
+                switch step {
+                case .welcome: welcome
+                case .name: name
+                case .oximeter: oximeter
+                case .contacts: contacts
+                case .permissions: permissions
+                case .test: test
+                case .done: done
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-
-            ContactsEditor(header: nil)
+            .id(step)
+            .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
         }
-        .safeAreaInset(edge: .bottom) {
-            BigButton(title: "Continue", action: next)
-                .disabled(store.data.contacts.isEmpty)
-                .padding()
-                .background(.bar)
-        }
+        .background(Theme.background.ignoresSafeArea())
     }
-}
 
-private struct PermissionsStep: View {
-    @EnvironmentObject private var notifications: NotificationService
-    @EnvironmentObject private var location: LocationService
-    let next: () -> Void
+    // MARK: - Steps
 
-    var body: some View {
-        StepScaffold(
-            symbol: "lock.shield.fill",
-            title: "Two permissions",
-            subtitle: "So Spotter keeps working with your screen locked.",
-            buttonTitle: "Continue",
+    private var welcome: some View {
+        SetupPage(
+            title: "Spotter",
+            subtitle: "Watches your oxygen while you use. Texts your people if you don't respond.",
+            button: "Set up",
             action: next
         ) {
-            VStack(spacing: 12) {
-                PermissionRow(
-                    symbol: "bell.badge.fill",
-                    title: "Notifications",
-                    detail: "So the alarm reaches you when Spotter is in the background. Allow Critical Alerts if asked: they sound even on silent.",
-                    granted: notifications.isAllowed
-                ) {
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .font(.system(size: 80, weight: .medium))
+                .foregroundStyle(Theme.accent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+        }
+    }
+
+    private var name: some View {
+        SetupPage(
+            title: "What's your first name?",
+            subtitle: "Used in texts to your contacts.",
+            button: "Continue",
+            enabled: !store.data.firstName.trimmingCharacters(in: .whitespaces).isEmpty,
+            action: next
+        ) {
+            TextField("First name", text: $store.data.firstName)
+                .textContentType(.givenName)
+                .font(.title2)
+                .submitLabel(.continue)
+                .focused($nameFocused)
+                .onSubmit { if !store.data.firstName.isEmpty { next() } }
+                .fieldStyle()
+                .onAppear { nameFocused = true }
+        }
+    }
+
+    private var oximeter: some View {
+        SetupPage(
+            title: "Connect your oximeter",
+            subtitle: "Put it on your finger to turn it on.",
+            button: "Continue",
+            enabled: sensorReading,
+            secondary: store.data.pairedSensorID == nil && !store.data.useFakeSensor
+                ? SecondaryAction(title: "Try without one") { store.data.useFakeSensor = true }
+                : nil,
+            action: next
+        ) {
+            OximeterPairing()
+        }
+    }
+
+    private var contacts: some View {
+        SetupPage(
+            title: "Who should we text?",
+            subtitle: "Up to 3 people who can get to you fast.",
+            button: "Continue",
+            enabled: !store.data.contacts.isEmpty,
+            action: next
+        ) {
+            VStack(spacing: 10) {
+                ForEach(store.data.contacts) { contact in
+                    ContactRow(contact: contact) {
+                        withAnimation { store.data.contacts.removeAll { $0.id == contact.id } }
+                    }
+                    .card(padding: 12)
+                }
+                if store.data.contacts.count < EmergencyContact.maximumCount {
+                    AddContactForm()
+                        .padding(.top, store.data.contacts.isEmpty ? 0 : 8)
+                }
+            }
+        }
+    }
+
+    private var permissions: some View {
+        SetupPage(
+            title: "Allow alerts",
+            subtitle: "So Spotter works with your screen locked.",
+            button: "Continue",
+            enabled: notifications.isAllowed,
+            secondary: notifications.isAllowed ? nil : SecondaryAction(title: "Skip", action: next),
+            action: next
+        ) {
+            VStack(spacing: 10) {
+                PermissionButton(title: "Notifications", symbol: "bell.fill", granted: notifications.isAllowed) {
                     Task { await notifications.requestPermission() }
                 }
-                PermissionRow(
-                    symbol: "location.fill",
-                    title: "Location",
-                    detail: "So an alert can say where you are. Only used during a session.",
-                    granted: location.isAllowed
-                ) {
+                PermissionButton(title: "Location", symbol: "location.fill", granted: location.isAllowed) {
                     location.requestPermission()
-                }
-                if notifications.isAllowed, !notifications.timeSensitiveEnabled, !notifications.criticalAlertsEnabled {
-                    WarningRow(text: "Turn on Time Sensitive in Settings > Notifications > Spotter so alarms break through Focus.")
-                        .card()
                 }
             }
         }
         .onAppear { notifications.refresh() }
     }
-}
 
-private struct PermissionRow: View {
-    let symbol: String
-    let title: String
-    let detail: String
-    let granted: Bool
-    let request: () -> Void
+    private var test: some View {
+        SetupPage(
+            title: "Send a test text",
+            subtitle: "Make sure it reaches them.",
+            button: testSent ? "Continue" : "Skip for now",
+            action: next
+        ) {
+            TestTextPanel(sent: $testSent)
+        }
+    }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            IconBadge(systemName: granted ? "checkmark" : symbol, tint: granted ? Theme.good : Theme.accent, size: 44)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.headline)
-                Text(detail).font(.subheadline).foregroundStyle(.secondary)
-                if granted {
-                    Text("Allowed").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.good)
-                } else {
-                    Button("Allow", action: request)
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.capsule)
+    private var done: some View {
+        SetupPage(
+            title: "You're all set",
+            subtitle: "Tap Start whenever you use.",
+            button: "Done",
+            action: { withAnimation { store.data.onboardingComplete = true } }
+        ) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 88))
+                .foregroundStyle(Theme.good)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+        }
+    }
+
+    // MARK: - Chrome
+
+    private var topBar: some View {
+        HStack(spacing: 16) {
+            Button {
+                withAnimation { step = Step(rawValue: step.rawValue - 1) ?? .welcome }
+            } label: {
+                Image(systemName: "chevron.left").font(.title3.weight(.semibold))
+            }
+            .opacity(step == .welcome || step == .done ? 0 : 1)
+            .disabled(step == .welcome || step == .done)
+            .accessibilityLabel("Back")
+
+            HStack(spacing: 5) {
+                ForEach(1..<(Step.allCases.count - 1), id: \.self) { index in
+                    Capsule()
+                        .fill(index <= step.rawValue ? Theme.accent : Color.secondary.opacity(0.2))
+                        .frame(height: 4)
                 }
             }
+            .opacity(step == .welcome || step == .done ? 0 : 1)
+            .accessibilityHidden(true)
+
+            Color.clear.frame(width: 20, height: 1)
         }
-        .card()
-        .animation(.default, value: granted)
+        .padding(.horizontal, 20)
+        .frame(height: 44)
+    }
+
+    private var sensorReading: Bool {
+        hub.latest?.quality(minimumPerfusionIndex: store.data.alertSettings.minimumPerfusionIndex) == .valid
+    }
+
+    private func next() {
+        nameFocused = false
+        withAnimation(.easeInOut(duration: 0.3)) { step = Step(rawValue: step.rawValue + 1) ?? .done }
     }
 }
 
-private struct TestAlertStep: View {
-    let next: () -> Void
+private struct SecondaryAction {
+    let title: String
+    let action: () -> Void
+}
+
+/// Title, one line of subtitle, content, and one main button at the bottom.
+private struct SetupPage<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let button: String
+    var enabled = true
+    var secondary: SecondaryAction? = nil
+    let action: () -> Void
+    @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                IconBadge(systemName: "paperplane.fill", size: 56)
-                Text("Send a test")
-                    .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                Text("Catches wrong numbers before you rely on Spotter.")
-                    .foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title)
+                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(subtitle)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                content
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-
-            TestAlertPanel()
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
         }
+        .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) {
-            BigButton(title: "Finish setup", systemImage: "checkmark", action: next)
-                .padding()
-                .background(.bar)
+            VStack(spacing: 4) {
+                BigButton(title: button, action: action)
+                    .disabled(!enabled)
+                if let secondary {
+                    Button(secondary.title, action: secondary.action)
+                        .font(.subheadline.weight(.medium))
+                        .frame(minHeight: 40)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 8)
+            .padding(.top, 8)
+            .background(Theme.background)
         }
+    }
+}
+
+private struct PermissionButton: View {
+    let title: String
+    let symbol: String
+    let granted: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                IconBadge(systemName: granted ? "checkmark" : symbol, tint: granted ? Theme.good : Theme.accent, size: 44)
+                Text(title).font(.headline)
+                Spacer()
+                Text(granted ? "On" : "Allow")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(granted ? Theme.good : Theme.accent)
+            }
+            .card(padding: 14)
+        }
+        .buttonStyle(.plain)
+        .disabled(granted)
+        .animation(.default, value: granted)
     }
 }
