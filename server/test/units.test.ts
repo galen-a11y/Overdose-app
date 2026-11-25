@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { buildMessage, formatTime, mapLink } from '../src/messages.ts';
 import { createSession, nextAlarmAt, onAlarm, LIMITS } from '../src/session.ts';
 import { maskPhone, sendText } from '../src/twilio.ts';
+import { sendSms, sendTextbelt } from '../src/sms.ts';
 import { alice, bob, here } from './helpers.ts';
 
 const t0 = Date.UTC(2026, 10, 25, 20, 0, 0);
@@ -88,9 +89,46 @@ describe('twilio', () => {
   });
 
   it('does not send in dry run', async () => {
-    const result = await sendText({ DRY_RUN: 'true' }, '+15035550101', 'x', async () => {
+    const result = await sendSms({ DRY_RUN: 'true', TEXTBELT_KEY: 'k' }, '+15035550101', 'x', async () => {
       throw new Error('should not be called');
     });
     assert.deepEqual(result, { ok: true });
+  });
+});
+
+describe('textbelt', () => {
+  it('posts phone, message and key', async () => {
+    let captured: { url: string; init: RequestInit } | undefined;
+    const fakeFetch = async (url: string, init: RequestInit) => {
+      captured = { url, init };
+      return new Response(JSON.stringify({ success: true, quotaRemaining: 100 }), { status: 200 });
+    };
+    assert.deepEqual(await sendTextbelt('KEY', '+15035550101', 'hello', fakeFetch), { ok: true });
+    assert.equal(captured!.url, 'https://textbelt.com/text');
+    const form = new URLSearchParams(captured!.init.body as string);
+    assert.equal(form.get('phone'), '+15035550101');
+    assert.equal(form.get('message'), 'hello');
+    assert.equal(form.get('key'), 'KEY');
+  });
+
+  it('treats a refusal as final and an outage as retryable', async () => {
+    const refused = async () => new Response(JSON.stringify({ success: false, error: 'Out of quota' }), { status: 200 });
+    assert.deepEqual(await sendTextbelt('KEY', '+15035550101', 'x', refused), { ok: false, retryable: false, status: 200 });
+    const down = async () => new Response('', { status: 503 });
+    assert.deepEqual(await sendTextbelt('KEY', '+15035550101', 'x', down), { ok: false, retryable: true, status: 503 });
+    const offline = async (): Promise<Response> => { throw new Error('network'); };
+    assert.deepEqual(await sendTextbelt('KEY', '+15035550101', 'x', offline), { ok: false, retryable: true });
+  });
+
+  it('is used when TEXTBELT_KEY is set, Twilio otherwise', async () => {
+    const urls: string[] = [];
+    const fakeFetch = async (url: string) => {
+      urls.push(url);
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    };
+    await sendSms({ TEXTBELT_KEY: 'KEY' }, '+15035550101', 'x', fakeFetch);
+    await sendSms({ TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 's', TWILIO_FROM: '+15035550000' }, '+15035550101', 'x', fakeFetch);
+    assert.equal(urls[0], 'https://textbelt.com/text');
+    assert.match(urls[1], /api\.twilio\.com/);
   });
 });

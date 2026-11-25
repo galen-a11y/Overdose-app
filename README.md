@@ -10,7 +10,7 @@ An iPhone app that watches a Wellue Bluetooth fingertip oximeter while someone u
 | --- | --- | --- |
 | `SafetyCore/` | Swift package with the logic that has to be right: the PC-60FW packet decoder, the alert engine, phone number handling, the offline outbox, and scripted fake-sensor scenarios. Foundation only. | 35 unit tests (`swift test`), run on Linux and macOS |
 | `App/` | The SwiftUI iPhone app: Bluetooth, alarm, notifications, location, onboarding, session screens, settings. | Built by CI on macOS; needs a real phone for the rest (see below) |
-| `server/` | Cloudflare Worker that sends texts through Twilio and runs the heartbeat backup. One Durable Object per session. | 30 tests (`npm test`), typecheck, and a smoke test in `wrangler dev` |
+| `server/` | Cloudflare Worker that sends texts (Textbelt or Twilio) and runs the heartbeat backup. One Durable Object per session. | 33 tests (`npm test`), typecheck, and a smoke test in `wrangler dev` |
 | `project.yml` | XcodeGen project definition. The `.xcodeproj` is generated, not committed. | |
 
 ## How it works
@@ -61,7 +61,7 @@ To try everything without the oximeter: Settings > Developer > Use fake oximeter
 
 ## Deploying the server
 
-See [server/README.md](server/README.md). The short version: `cd server && npm install && npx wrangler deploy`, set the Twilio and app key secrets, then put the Worker URL in `Config/Secrets.xcconfig`. Until Twilio is set up, `DRY_RUN = "true"` in `wrangler.toml` logs texts instead of sending them.
+See [server/README.md](server/README.md). The short version: `cd server && npm install && npx wrangler deploy`, set the app key and Textbelt (or Twilio) secrets, then put the Worker URL in `Config/Secrets.xcconfig`. Until texting is set up, `DRY_RUN = "true"` in `wrangler.toml` logs texts instead of sending them.
 
 ## Status against the build plan
 

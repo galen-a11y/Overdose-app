@@ -110,26 +110,21 @@ struct SessionSummaryView: View {
     let summary: SessionManager.Summary
 
     var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 80))
-                .foregroundStyle(Theme.good)
-            Text("Session ended")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-            Text(Format.duration(summary.duration))
-                .font(.title3)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-            if summary.alertWentOut, !summary.safeTextSent {
-                Text("Let your contacts know you're OK.")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.caution)
+        SheetPage(
+            title: "Session ended.",
+            message: summary.alertWentOut && !summary.safeTextSent
+                ? "Let your contacts know you're OK."
+                : "Watched for \(Format.duration(summary.duration)).",
+            primary: "Done",
+            onPrimary: { session.dismissSummary() }
+        ) {
+            ArtPanel(height: 340) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 110))
+                    .foregroundStyle(.white, Theme.good)
             }
-            Spacer()
-            BigButton(title: "Done") { session.dismissSummary() }
+        } content: {
+            EmptyView()
         }
-        .padding(24)
-        .background(Theme.background.ignoresSafeArea())
     }
 }

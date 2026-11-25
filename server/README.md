@@ -1,6 +1,6 @@
 # Spotter server
 
-A Cloudflare Worker that sends Spotter's texts through Twilio and acts as the backup when the phone goes quiet. Each session is one Durable Object that holds the contacts and last location, runs the timers, and deletes everything when the session ends (or at most 12 hours after it starts, or 1 hour after its planned end).
+A Cloudflare Worker that sends Spotter's texts (through Textbelt or Twilio) and acts as the backup when the phone goes quiet. Each session is one Durable Object that holds the contacts and last location, runs the timers, and deletes everything when the session ends (or at most 12 hours after it starts, or 1 hour after its planned end).
 
 ## Endpoints
 
@@ -37,18 +37,19 @@ Failed texts are retried with backoff (up to 6 attempts). Each session can send 
 ```sh
 npm install
 npx wrangler login
+npx wrangler secret put APP_KEY        # any long random string (openssl rand -hex 32); same value in Config/Secrets.xcconfig
+npx wrangler secret put TEXTBELT_KEY   # from textbelt.com
 npx wrangler deploy
-npx wrangler secret put APP_KEY                     # any long random string; same value in Config/Secrets.xcconfig
-npx wrangler secret put TWILIO_ACCOUNT_SID
-npx wrangler secret put TWILIO_AUTH_TOKEN
-npx wrangler secret put TWILIO_FROM                 # or TWILIO_MESSAGING_SERVICE_SID
 ```
 
 Then set `DRY_RUN = "false"` in `wrangler.toml` and deploy again. While `DRY_RUN` is `"true"`, texts are only logged (`npx wrangler tail` to watch).
 
-Durable Objects with SQLite storage work on the Workers free plan. If your account doesn't have the rate limiting binding, delete the `[[ratelimits]]` block; the code skips the limit when it's missing.
+### Choosing a text service
 
-US carriers need the sending number registered (10DLC or toll-free verification) before texts go through reliably. Start that early; it takes weeks.
+- **Textbelt** (used when `TEXTBELT_KEY` is set): buy credits at textbelt.com and you get one key. No phone number to buy and no carrier registration on your side. The key `textbelt` sends one free text a day, handy for a first test. Textbelt may hold back messages with links until your account is approved for them, and alert texts include a map link, so send yourself a test alert and ask Textbelt support to allow links if it doesn't arrive.
+- **Twilio**: set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` (or `TWILIO_MESSAGING_SERVICE_SID`) and leave `TEXTBELT_KEY` unset. US carriers need the sending number registered (10DLC or toll-free verification), which takes weeks.
+
+Durable Objects with SQLite storage work on the Workers free plan. If your account doesn't have the rate limiting binding, delete the `[[ratelimits]]` block; the code skips the limit when it's missing.
 
 ## Develop
 

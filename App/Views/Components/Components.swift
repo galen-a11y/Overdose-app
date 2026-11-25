@@ -13,8 +13,8 @@ enum Theme {
     static let danger = Color(red: 0.86, green: 0.18, blue: 0.20)
     static let alarmDark = Color(red: 0.42, green: 0.02, blue: 0.04)
 
-    static let background = Color(.systemGroupedBackground)
-    static let surface = Color(.secondarySystemGroupedBackground)
+    static let background = Color.black
+    static let surface = Color(white: 0.19)
 
     /// Deep blue-green used behind the session screen. Easy on the eyes in a dark room.
     static let night = Color(red: 0.03, green: 0.08, blue: 0.09)
@@ -362,5 +362,199 @@ enum Format {
 
     static func names(_ names: [String]) -> String {
         names.isEmpty ? "your contacts" : ListFormatter.localizedString(byJoining: names)
+    }
+}
+
+// MARK: - Check In style
+//
+// Modeled on Apple's Check In sheets in Messages: dark background, a bold
+// title that runs into gray text, an optional picture on top, blue pill
+// button with a gray one under it.
+
+extension Theme {
+    static let sheet = Color(white: 0.11)
+    static let card = Color(white: 0.19)
+    static let illustration = Color(white: 0.17)
+    static let secondaryText = Color(white: 0.6)
+}
+
+/// One full-screen step.
+struct SheetPage<Art: View, Content: View>: View {
+    let title: String
+    var message: String? = nil
+    var primary: String
+    var primaryEnabled = true
+    var secondary: String? = nil
+    var onBack: (() -> Void)? = nil
+    let onPrimary: () -> Void
+    var onSecondary: (() -> Void)? = nil
+    @ViewBuilder var art: Art
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    art
+                    VStack(alignment: .leading, spacing: 28) {
+                        (Text(title).foregroundColor(.white).bold()
+                            + Text(message.map { "\n" + $0 } ?? "").foregroundColor(Theme.secondaryText))
+                            .font(.system(size: 28))
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        content
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.top, 32)
+                    .padding(.bottom, 24)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+
+            VStack(spacing: 14) {
+                PillButton(title: primary, style: .primary, action: onPrimary)
+                    .disabled(!primaryEnabled)
+                if let secondary, let onSecondary {
+                    PillButton(title: secondary, style: .secondary, action: onSecondary)
+                }
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+        }
+        .overlay(alignment: .topLeading) {
+            if let onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 52, height: 52)
+                        .background(Color(white: 0.22), in: Circle())
+                }
+                .accessibilityLabel("Back")
+                .padding(.leading, 16)
+                .padding(.top, 8)
+            }
+        }
+        .background(Theme.sheet.ignoresSafeArea())
+    }
+}
+
+extension SheetPage where Art == EmptyView {
+    init(
+        title: String, message: String? = nil, primary: String, primaryEnabled: Bool = true,
+        secondary: String? = nil, onBack: (() -> Void)? = nil,
+        onPrimary: @escaping () -> Void, onSecondary: (() -> Void)? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.init(
+            title: title, message: message, primary: primary, primaryEnabled: primaryEnabled,
+            secondary: secondary, onBack: onBack, onPrimary: onPrimary, onSecondary: onSecondary,
+            art: { EmptyView() }, content: content
+        )
+    }
+}
+
+/// The gray picture panel at the top of a sheet.
+struct ArtPanel<Content: View>: View {
+    var height: CGFloat = 340
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ZStack { content }
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background(Theme.illustration)
+    }
+}
+
+struct PillButton: View {
+    enum Style { case primary, secondary }
+    let title: String
+    var style: Style = .primary
+    let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 20, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 60)
+                .foregroundStyle(foreground)
+                .background(background, in: Capsule())
+        }
+        .buttonStyle(PressScaleStyle())
+    }
+
+    private var foreground: Color {
+        guard isEnabled else { return Color(white: 0.45) }
+        return .white
+    }
+
+    private var background: Color {
+        guard isEnabled else { return Color(white: 0.24) }
+        return style == .primary ? Theme.accent : Color(white: 0.24)
+    }
+}
+
+/// Blue filled circle icon, bold title, gray detail.
+struct InfoRow: View {
+    let symbol: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 18) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 46, height: 46)
+                .background(Theme.accent, in: Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                Text(detail).font(.system(size: 18)).foregroundStyle(Theme.secondaryText)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A rounded card with an icon, title, detail and a radio circle.
+struct OptionCard: View {
+    let symbol: String
+    let title: String
+    var detail: String? = nil
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: symbol)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 34)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                    if let detail {
+                        Text(detail).font(.system(size: 15)).foregroundStyle(Theme.secondaryText)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 26))
+                    .foregroundStyle(selected ? Theme.accent : Color(white: 0.45))
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .sensoryFeedback(.selection, trigger: selected)
     }
 }

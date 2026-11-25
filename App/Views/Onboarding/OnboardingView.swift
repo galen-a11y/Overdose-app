@@ -1,271 +1,359 @@
 import SafetyCore
 import SwiftUI
 
-/// One-time setup, one question per screen.
+/// One-time setup in the style of Apple's Check In: one idea per screen.
 struct OnboardingView: View {
     enum Step: Int, CaseIterable {
-        case welcome, name, oximeter, contacts, permissions, test, done
+        case welcome, howItWorks, name, oximeter, contacts, permissions, test, done
     }
 
     @EnvironmentObject private var store: AppStore
-    @EnvironmentObject private var hub: SensorHub
-    @EnvironmentObject private var notifications: NotificationService
-    @EnvironmentObject private var location: LocationService
     @State private var step: Step = .welcome
-    @State private var testSent = false
-    @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            Group {
-                switch step {
-                case .welcome: welcome
-                case .name: name
-                case .oximeter: oximeter
-                case .contacts: contacts
-                case .permissions: permissions
-                case .test: test
-                case .done: done
+        ZStack {
+            switch step {
+            case .welcome: WelcomeStep(next: next)
+            case .howItWorks: HowItWorksStep(next: next, back: back)
+            case .name: NameStep(next: next, back: back)
+            case .oximeter: OximeterStep(next: next, back: back)
+            case .contacts: ContactsStep(next: next, back: back)
+            case .permissions: PermissionsStep(next: next, back: back)
+            case .test: TestStep(next: next, back: back)
+            case .done: DoneStep { withAnimation { store.data.onboardingComplete = true } }
+            }
+        }
+        .id(step)
+        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
+        .background(Theme.sheet.ignoresSafeArea())
+    }
+
+    private func next() {
+        withAnimation(.easeInOut(duration: 0.3)) { step = Step(rawValue: step.rawValue + 1) ?? .done }
+    }
+
+    private func back() {
+        withAnimation(.easeInOut(duration: 0.3)) { step = Step(rawValue: step.rawValue - 1) ?? .welcome }
+    }
+}
+
+// MARK: - Steps
+
+private struct WelcomeStep: View {
+    let next: () -> Void
+
+    var body: some View {
+        SheetPage(
+            title: "Spotter has your back.",
+            message: "It watches your oxygen while you use, and lets your people know if you don't respond.",
+            primary: "Continue",
+            onPrimary: next
+        ) {
+            ArtPanel(height: 380) {
+                PhoneMock {
+                    VStack(spacing: 14) {
+                        OxygenRing(spo2: 97, threshold: 90, quality: .valid, size: 130, trackColor: .white.opacity(0.08))
+                        StatusPill(text: "Watching", color: Theme.good, pulsing: true)
+                    }
                 }
             }
-            .id(step)
-            .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
-        }
-        .background(Theme.background.ignoresSafeArea())
-    }
-
-    // MARK: - Steps
-
-    private var welcome: some View {
-        SetupPage(
-            title: "Spotter",
-            subtitle: "Watches your oxygen while you use. Texts your people if you don't respond.",
-            button: "Set up",
-            action: next
-        ) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 80, weight: .medium))
-                .foregroundStyle(Theme.accent)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
+        } content: {
+            EmptyView()
         }
     }
+}
 
-    private var name: some View {
-        SetupPage(
+private struct HowItWorksStep: View {
+    let next: () -> Void
+    let back: () -> Void
+
+    var body: some View {
+        SheetPage(title: "Your contacts will be texted when…", primary: "Continue", onBack: back, onPrimary: next) {
+            VStack(alignment: .leading, spacing: 28) {
+                InfoRow(symbol: "lungs.fill", title: "Your oxygen stays low", detail: "You get a loud check-in first.")
+                InfoRow(symbol: "waveform.path.ecg", title: "The signal goes quiet", detail: "Like the oximeter slipping off.")
+                InfoRow(symbol: "clock.fill", title: "You don't respond", detail: "After 30 seconds, they get your location.")
+                InfoRow(symbol: "antenna.radiowaves.left.and.right.slash", title: "Your phone goes offline", detail: "They get a heads-up to check on you.")
+            }
+            .padding(.top, 36)
+        }
+    }
+}
+
+private struct NameStep: View {
+    @EnvironmentObject private var store: AppStore
+    let next: () -> Void
+    let back: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        SheetPage(
             title: "What's your first name?",
-            subtitle: "Used in texts to your contacts.",
-            button: "Continue",
-            enabled: !store.data.firstName.trimmingCharacters(in: .whitespaces).isEmpty,
-            action: next
+            message: "Only used in texts to your contacts.",
+            primary: "Continue",
+            primaryEnabled: !store.data.firstName.trimmingCharacters(in: .whitespaces).isEmpty,
+            onBack: back,
+            onPrimary: next
         ) {
             TextField("First name", text: $store.data.firstName)
                 .textContentType(.givenName)
-                .font(.title2)
+                .font(.system(size: 22))
                 .submitLabel(.continue)
-                .focused($nameFocused)
+                .focused($focused)
                 .onSubmit { if !store.data.firstName.isEmpty { next() } }
                 .fieldStyle()
-                .onAppear { nameFocused = true }
+                .padding(.top, 40)
+                .onAppear { focused = true }
         }
     }
+}
 
-    private var oximeter: some View {
-        SetupPage(
-            title: "Connect your oximeter",
-            subtitle: "Put it on your finger to turn it on.",
-            button: "Continue",
-            enabled: sensorReading,
-            secondary: store.data.pairedSensorID == nil && !store.data.useFakeSensor
-                ? SecondaryAction(title: "Try without one") { store.data.useFakeSensor = true }
-                : nil,
-            action: next
+private struct OximeterStep: View {
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var hub: SensorHub
+    @StateObject private var scanner = OximeterScanner()
+    let next: () -> Void
+    let back: () -> Void
+
+    var body: some View {
+        SheetPage(
+            title: isPaired ? (isReading ? "You're connected." : "Almost there.") : "Connect your oximeter.",
+            message: isPaired ? (isReading ? "Spotter can see your reading." : "Put it on your finger.") : "Put it on your finger to turn it on, then tap it below.",
+            primary: "Continue",
+            primaryEnabled: isReading,
+            secondary: isPaired ? "Choose Another" : "Try Without One",
+            onBack: back,
+            onPrimary: next,
+            onSecondary: {
+                if isPaired {
+                    store.data.pairedSensorID = nil
+                    store.data.useFakeSensor = false
+                } else {
+                    store.data.useFakeSensor = true
+                }
+            }
         ) {
-            OximeterPairing()
+            ArtPanel(height: 300) {
+                if isPaired {
+                    OxygenRing(
+                        spo2: hub.latest?.spo2,
+                        threshold: store.data.alertSettings.lowSpO2Threshold,
+                        quality: quality,
+                        size: 190,
+                        trackColor: .white.opacity(0.08)
+                    )
+                } else {
+                    Image(systemName: "sensor.fill")
+                        .font(.system(size: 80))
+                        .foregroundStyle(Theme.accent)
+                        .symbolEffect(.pulse, options: .repeating)
+                }
+            }
+        } content: {
+            if !isPaired {
+                VStack(spacing: 12) {
+                    if let problem = scanner.bluetoothProblem {
+                        Text(problem).foregroundStyle(Theme.danger)
+                    }
+                    ForEach(scanner.visibleDevices) { device in
+                        OptionCard(symbol: "sensor.fill", title: device.name, selected: false) { pair(device) }
+                    }
+                    if scanner.visibleDevices.isEmpty, scanner.bluetoothProblem == nil {
+                        HStack(spacing: 10) {
+                            ProgressView().tint(Theme.secondaryText)
+                            Text("Looking…").foregroundStyle(Theme.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                }
+            }
+        }
+        .animation(.default, value: isPaired)
+        .animation(.default, value: isReading)
+        .onAppear {
+            scanner.start()
+            hub.acquire("pairing")
+        }
+        .onDisappear {
+            scanner.stop()
+            hub.release("pairing")
         }
     }
 
-    private var contacts: some View {
-        SetupPage(
+    private var isPaired: Bool { store.data.pairedSensorID != nil || store.data.useFakeSensor }
+
+    private var quality: ReadingQuality? {
+        hub.latest?.quality(minimumPerfusionIndex: store.data.alertSettings.minimumPerfusionIndex)
+    }
+
+    private var isReading: Bool { isPaired && quality == .valid }
+
+    private func pair(_ device: OximeterScanner.Device) {
+        store.data.useFakeSensor = false
+        store.data.pairedSensorID = device.id
+        store.data.pairedSensorName = device.name
+        DispatchQueue.main.async { hub.acquire("pairing") }
+    }
+}
+
+private struct ContactsStep: View {
+    @EnvironmentObject private var store: AppStore
+    let next: () -> Void
+    let back: () -> Void
+
+    var body: some View {
+        SheetPage(
             title: "Who should we text?",
-            subtitle: "Up to 3 people who can get to you fast.",
-            button: "Continue",
-            enabled: !store.data.contacts.isEmpty,
-            action: next
+            message: "Up to 3 people who can get to you fast.",
+            primary: "Continue",
+            primaryEnabled: !store.data.contacts.isEmpty,
+            onBack: back,
+            onPrimary: next
         ) {
-            VStack(spacing: 10) {
+            VStack(spacing: 12) {
                 ForEach(store.data.contacts) { contact in
                     ContactRow(contact: contact) {
                         withAnimation { store.data.contacts.removeAll { $0.id == contact.id } }
                     }
-                    .card(padding: 12)
+                    .padding(16)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
                 if store.data.contacts.count < EmergencyContact.maximumCount {
                     AddContactForm()
-                        .padding(.top, store.data.contacts.isEmpty ? 0 : 8)
                 }
             }
+            .padding(.top, 12)
         }
     }
+}
 
-    private var permissions: some View {
-        SetupPage(
-            title: "Allow alerts",
-            subtitle: "So Spotter works with your screen locked.",
-            button: "Continue",
-            enabled: notifications.isAllowed,
-            secondary: notifications.isAllowed ? nil : SecondaryAction(title: "Skip", action: next),
-            action: next
+private struct PermissionsStep: View {
+    @EnvironmentObject private var notifications: NotificationService
+    @EnvironmentObject private var location: LocationService
+    let next: () -> Void
+    let back: () -> Void
+
+    var body: some View {
+        SheetPage(
+            title: "Allow alerts.",
+            message: "So Spotter keeps working when your screen is locked.",
+            primary: "Continue",
+            primaryEnabled: notifications.isAllowed,
+            secondary: notifications.isAllowed ? nil : "Not Now",
+            onBack: back,
+            onPrimary: next,
+            onSecondary: next
         ) {
-            VStack(spacing: 10) {
-                PermissionButton(title: "Notifications", symbol: "bell.fill", granted: notifications.isAllowed) {
+            VStack(spacing: 14) {
+                OptionCard(symbol: "bell.badge.fill", title: "Notifications", detail: "Loud alarms, even when locked.", selected: notifications.isAllowed) {
                     Task { await notifications.requestPermission() }
                 }
-                PermissionButton(title: "Location", symbol: "location.fill", granted: location.isAllowed) {
+                OptionCard(symbol: "location.fill", title: "Location", detail: "So a text can say where you are.", selected: location.isAllowed) {
                     location.requestPermission()
                 }
             }
+            .padding(.top, 20)
         }
         .onAppear { notifications.refresh() }
     }
-
-    private var test: some View {
-        SetupPage(
-            title: "Send a test text",
-            subtitle: "Make sure it reaches them.",
-            button: testSent ? "Continue" : "Skip for now",
-            action: next
-        ) {
-            TestTextPanel(sent: $testSent)
-        }
-    }
-
-    private var done: some View {
-        SetupPage(
-            title: "You're all set",
-            subtitle: "Tap Start whenever you use.",
-            button: "Done",
-            action: { withAnimation { store.data.onboardingComplete = true } }
-        ) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 88))
-                .foregroundStyle(Theme.good)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-        }
-    }
-
-    // MARK: - Chrome
-
-    private var topBar: some View {
-        HStack(spacing: 16) {
-            Button {
-                withAnimation { step = Step(rawValue: step.rawValue - 1) ?? .welcome }
-            } label: {
-                Image(systemName: "chevron.left").font(.title3.weight(.semibold))
-            }
-            .opacity(step == .welcome || step == .done ? 0 : 1)
-            .disabled(step == .welcome || step == .done)
-            .accessibilityLabel("Back")
-
-            HStack(spacing: 5) {
-                ForEach(1..<(Step.allCases.count - 1), id: \.self) { index in
-                    Capsule()
-                        .fill(index <= step.rawValue ? Theme.accent : Color.secondary.opacity(0.2))
-                        .frame(height: 4)
-                }
-            }
-            .opacity(step == .welcome || step == .done ? 0 : 1)
-            .accessibilityHidden(true)
-
-            Color.clear.frame(width: 20, height: 1)
-        }
-        .padding(.horizontal, 20)
-        .frame(height: 44)
-    }
-
-    private var sensorReading: Bool {
-        hub.latest?.quality(minimumPerfusionIndex: store.data.alertSettings.minimumPerfusionIndex) == .valid
-    }
-
-    private func next() {
-        nameFocused = false
-        withAnimation(.easeInOut(duration: 0.3)) { step = Step(rawValue: step.rawValue + 1) ?? .done }
-    }
 }
 
-private struct SecondaryAction {
-    let title: String
-    let action: () -> Void
-}
-
-/// Title, one line of subtitle, content, and one main button at the bottom.
-private struct SetupPage<Content: View>: View {
-    let title: String
-    let subtitle: String
-    let button: String
-    var enabled = true
-    var secondary: SecondaryAction? = nil
-    let action: () -> Void
-    @ViewBuilder let content: Content
+private struct TestStep: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.server) private var server
+    let next: () -> Void
+    let back: () -> Void
+    @State private var sent = false
+    @State private var sending = false
+    @State private var error: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(title)
-                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(subtitle)
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        SheetPage(
+            title: sent ? "Did they get it?" : "Send a test text.",
+            message: sent ? "Tap each person who did." : "Make sure it reaches your contacts.",
+            primary: sent ? "Continue" : (sending ? "Sending…" : "Send Test"),
+            primaryEnabled: !sending,
+            secondary: sent ? nil : "Not Now",
+            onBack: back,
+            onPrimary: { sent ? next() : send() },
+            onSecondary: next
+        ) {
+            VStack(spacing: 12) {
+                ForEach($store.data.contacts) { $contact in
+                    OptionCard(
+                        symbol: "person.fill",
+                        title: contact.name,
+                        detail: PhoneNumber.display(contact.phone),
+                        selected: sent && contact.testConfirmed
+                    ) {
+                        if sent { contact.testConfirmed.toggle() }
+                    }
                 }
-                content
+                if let error {
+                    Text(error).font(.callout).foregroundStyle(Theme.danger)
+                }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
+            .padding(.top, 12)
         }
-        .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 4) {
-                BigButton(title: button, action: action)
-                    .disabled(!enabled)
-                if let secondary {
-                    Button(secondary.title, action: secondary.action)
-                        .font(.subheadline.weight(.medium))
-                        .frame(minHeight: 40)
-                }
+    }
+
+    private func send() {
+        guard server.isConfigured else {
+            error = "Texting isn't set up yet. You can test later in Settings."
+            return
+        }
+        sending = true
+        error = nil
+        let firstName = store.data.firstName
+        let contacts = store.data.contacts
+        Task { @MainActor in
+            defer { sending = false }
+            do {
+                let results = try await server.sendTest(firstName: firstName, contacts: contacts)
+                if results.contains(where: { !$0.sent }) { error = "Some texts didn't send. Check the numbers." }
+                withAnimation { sent = true }
+            } catch {
+                self.error = error.localizedDescription
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
-            .padding(.top, 8)
-            .background(Theme.background)
         }
     }
 }
 
-private struct PermissionButton: View {
-    let title: String
-    let symbol: String
-    let granted: Bool
-    let action: () -> Void
+private struct DoneStep: View {
+    let finish: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                IconBadge(systemName: granted ? "checkmark" : symbol, tint: granted ? Theme.good : Theme.accent, size: 44)
-                Text(title).font(.headline)
-                Spacer()
-                Text(granted ? "On" : "Allow")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(granted ? Theme.good : Theme.accent)
+        SheetPage(
+            title: "You're all set.",
+            message: "Tap Start whenever you use. That's it.",
+            primary: "Done",
+            onPrimary: finish
+        ) {
+            ArtPanel(height: 340) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 110))
+                    .foregroundStyle(.white, Theme.accent)
             }
-            .card(padding: 14)
+        } content: {
+            EmptyView()
         }
-        .buttonStyle(.plain)
-        .disabled(granted)
-        .animation(.default, value: granted)
+    }
+}
+
+/// A simple phone outline for illustrations.
+struct PhoneMock<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 44, style: .continuous)
+            .fill(Color.black)
+            .frame(width: 250, height: 330)
+            .overlay(content)
+            .overlay(alignment: .bottom) {
+                Capsule().fill(Color.white.opacity(0.7)).frame(width: 90, height: 5).padding(.bottom, 12)
+            }
+            .offset(y: 30)
+            .clipped()
     }
 }

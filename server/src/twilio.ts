@@ -18,14 +18,10 @@ export function maskPhone(phone: string): string {
 }
 
 export async function sendText(config: TwilioConfig, to: string, body: string, fetchImpl: Fetch = fetch): Promise<SendResult> {
-  if (config.DRY_RUN === 'true') {
-    console.log(`[dry run] text to ${maskPhone(to)}: ${body.length} chars`);
-    return { ok: true };
-  }
   const sid = config.TWILIO_ACCOUNT_SID;
   const token = config.TWILIO_AUTH_TOKEN;
   if (!sid || !token || (!config.TWILIO_FROM && !config.TWILIO_MESSAGING_SERVICE_SID)) {
-    console.error('Twilio is not configured');
+    console.error('No text service configured: set TEXTBELT_KEY, or the Twilio secrets');
     return { ok: false, retryable: false };
   }
 

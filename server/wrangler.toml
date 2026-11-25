@@ -1,4 +1,4 @@
-# Cloudflare Worker that sends alert texts through Twilio and runs the
+# Cloudflare Worker that sends alert texts (Textbelt or Twilio) and runs the
 # heartbeat backup. See server/README.md for setup.
 name = "spotter-server"
 main = "src/index.ts"
@@ -25,6 +25,9 @@ simple = { limit = 5, period = 60 }
 DRY_RUN = "true"
 # Secrets, set with `wrangler secret put <NAME>`:
 #   APP_KEY                 shared key the app sends in X-App-Key
+# Then either Textbelt (simplest):
+#   TEXTBELT_KEY            from textbelt.com
+# or Twilio:
 #   TWILIO_ACCOUNT_SID
 #   TWILIO_AUTH_TOKEN
 #   TWILIO_FROM             sending number in E.164, or

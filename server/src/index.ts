@@ -5,9 +5,9 @@ import { DurableObject } from 'cloudflare:workers';
 import { handle } from './router.ts';
 import { SessionRunner, type CallResult, type Operation, type Storage } from './runner.ts';
 import type { CreateInput, SessionState } from './session.ts';
-import { sendText, type TwilioConfig } from './twilio.ts';
+import { sendSms, type SmsConfig } from './sms.ts';
 
-export interface Env extends TwilioConfig {
+export interface Env extends SmsConfig {
   SESSIONS: DurableObjectNamespace<SessionObject>;
   APP_KEY?: string;
   TEXT_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
@@ -21,7 +21,7 @@ export default {
         create: (id, input, token) => env.SESSIONS.get(env.SESSIONS.idFromName(id)).create(input, token),
         call: (id, token, operation) => env.SESSIONS.get(env.SESSIONS.idFromName(id)).call(token, operation),
       },
-      send: (to, body) => sendText(env, to, body),
+      send: (to, body) => sendSms(env, to, body),
       limit: async (key) => (env.TEXT_LIMITER ? (await env.TEXT_LIMITER.limit({ key })).success : true),
       now: () => Date.now(),
       randomId: () => crypto.randomUUID(),
@@ -45,7 +45,7 @@ export class SessionObject extends DurableObject<Env> {
       setAlarm: (at) => ctx.storage.setAlarm(at),
       deleteAlarm: () => ctx.storage.deleteAlarm(),
     };
-    this.runner = new SessionRunner(storage, (to, body) => sendText(env, to, body));
+    this.runner = new SessionRunner(storage, (to, body) => sendSms(env, to, body));
   }
 
   async create(input: CreateInput, token: string): Promise<void> {

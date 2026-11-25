@@ -24,5 +24,6 @@ struct RootView: View {
             }
         }
         .animation(.default, value: session.phase)
+        .preferredColorScheme(.dark)
     }
 }
