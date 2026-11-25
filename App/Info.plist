@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Spotter</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- Server settings, filled in from Config/Secrets.xcconfig. -->
+	<key>SpotterServerURL</key>
+	<string>$(SERVER_BASE_URL)</string>
+	<key>SpotterAppKey</key>
+	<string>$(APP_KEY)</string>
+
+	<!-- Permission prompts. Plain language, nothing about drugs. -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Spotter connects to your fingertip oximeter to watch your oxygen and pulse during a session.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>If you don't respond to a check-in, Spotter texts your location to your emergency contacts so they can find you.</string>
+
+	<!--
+	bluetooth-central: iOS wakes the app for oximeter readings and disconnects.
+	location: keeps the location fresh for alert texts and keeps monitoring running with the screen locked.
+	audio: lets the alarm sound while the phone is locked.
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+		<string>location</string>
+		<string>audio</string>
+	</array>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>bluetooth-le</string>
+	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+</dict>
+</plist>

@@ -123,6 +123,13 @@ public struct AlertEngine: Sendable {
         endingSoonSent = false
     }
 
+    /// Puts a resumed session straight back into the alerted state, for when iOS
+    /// relaunches the app after an alert already went out.
+    public mutating func restoreAlerted(reason: TriggerReason, at now: Date) {
+        if !isActive { start(at: now) }
+        state = .alerted(reason: reason, at: now)
+    }
+
     public mutating func updateSettings(_ newSettings: AlertSettings) {
         settings = newSettings.clamped()
     }

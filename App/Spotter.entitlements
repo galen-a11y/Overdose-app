@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Lets check-in notifications break through Focus. Enable the
+	     "Time Sensitive Notifications" capability for the App ID. -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+	<!-- Uncomment once Apple approves the Critical Alerts request, so alarms
+	     also sound with the phone on silent. Signing fails if this is present
+	     before approval.
+	<key>com.apple.developer.usernotifications.critical-alerts</key>
+	<true/>
+	-->
+</dict>
+</plist>

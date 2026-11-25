@@ -1,0 +1,12 @@
+// Build settings shared by Debug and Release.
+// Copy Config/Secrets.example.xcconfig to Config/Secrets.xcconfig (gitignored)
+// and fill in your values there; anything set in Secrets wins.
+
+APP_BUNDLE_ID = org.example.spotter
+DEVELOPMENT_TEAM =
+
+// The deployed server URL. "$()" stops xcconfig reading "//" as a comment.
+SERVER_BASE_URL =
+APP_KEY =
+
+#include? "Secrets.xcconfig"

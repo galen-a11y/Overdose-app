@@ -10,14 +10,17 @@ public struct Outbox: Codable, Equatable, Sendable {
         /// Path relative to the server base URL, for example "v1/sessions/abc/alert".
         public var path: String
         public var body: Data
+        /// Session token sent as `Authorization: Bearer`, if the route needs one.
+        public var token: String?
         public var createdAt: Date
         public var attempts: Int
         public var nextAttemptAt: Date
 
-        public init(id: UUID = UUID(), path: String, body: Data, createdAt: Date) {
+        public init(id: UUID = UUID(), path: String, body: Data, token: String? = nil, createdAt: Date) {
             self.id = id
             self.path = path
             self.body = body
+            self.token = token
             self.createdAt = createdAt
             self.attempts = 0
             self.nextAttemptAt = createdAt
@@ -35,8 +38,9 @@ public struct Outbox: Codable, Equatable, Sendable {
 
     public var isEmpty: Bool { entries.isEmpty }
 
-    public mutating func enqueue(path: String, body: Data, at now: Date) -> Entry {
-        let entry = Entry(path: path, body: body, createdAt: now)
+    @discardableResult
+    public mutating func enqueue(path: String, body: Data, token: String? = nil, at now: Date) -> Entry {
+        let entry = Entry(path: path, body: body, token: token, createdAt: now)
         entries.append(entry)
         return entry
     }
@@ -57,6 +61,20 @@ public struct Outbox: Codable, Equatable, Sendable {
         entries[index].attempts += 1
         let delay = min(Self.maximumBackoff, pow(2, Double(entries[index].attempts)))
         entries[index].nextAttemptAt = now.addingTimeInterval(delay)
+    }
+
+    /// Fills in a session placeholder once the server session exists, for
+    /// requests queued while the phone was offline at session start.
+    public mutating func resolve(placeholder: String, with value: String, token: String) {
+        for index in entries.indices where entries[index].path.contains(placeholder) {
+            entries[index].path = entries[index].path.replacingOccurrences(of: placeholder, with: value)
+            entries[index].token = token
+        }
+    }
+
+    /// Drops entries still waiting on a placeholder that will never be filled.
+    public mutating func removeUnresolved(placeholder: String) {
+        entries.removeAll { $0.path.contains(placeholder) }
     }
 
     /// Drops everything for a session, for example once it has ended on the server.

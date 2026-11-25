@@ -163,6 +163,14 @@ final class AlertEngineTests: XCTestCase {
         XCTAssertEqual(engine.settings.checkInCountdown, 15)
     }
 
+    func testRestoredAlertStaysAlerted() {
+        var engine = AlertEngine()
+        engine.restoreAlerted(reason: .signalLost, at: t0)
+        XCTAssertEqual(engine.state, .alerted(reason: .signalLost, at: t0))
+        XCTAssertTrue(engine.tick(at: t0 + 600).isEmpty)
+        XCTAssertTrue(engine.ingest(reading(70, at: t0 + 601), at: t0 + 601).isEmpty)
+    }
+
     func testIdleEngineIgnoresReadings() {
         var engine = AlertEngine()
         XCTAssertTrue(engine.ingest(reading(70, at: t0), at: t0).isEmpty)

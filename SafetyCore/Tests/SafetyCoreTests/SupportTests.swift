@@ -42,6 +42,15 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(outbox.entries.map(\.id), [a.id])
     }
 
+    func testResolvesSessionPlaceholder() {
+        var outbox = Outbox()
+        outbox.enqueue(path: "v1/sessions/{session}/alert", body: Data(), at: t0)
+        outbox.enqueue(path: "v1/test", body: Data(), at: t0)
+        outbox.resolve(placeholder: "{session}", with: "abc", token: "tok")
+        XCTAssertEqual(outbox.entries.map(\.path), ["v1/sessions/abc/alert", "v1/test"])
+        XCTAssertEqual(outbox.entries.map(\.token), ["tok", nil])
+    }
+
     func testDropsVeryOldEntries() {
         var outbox = Outbox()
         _ = outbox.enqueue(path: "v1/a", body: Data(), at: t0)
