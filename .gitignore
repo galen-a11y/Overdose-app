@@ -1,0 +1,16 @@
+# Xcode
+*.xcodeproj/
+!*.xcodeproj/project.xcworkspace/
+xcuserdata/
+DerivedData/
+.build/
+.swiftpm/
+*.xcuserstate
+Config/Secrets.xcconfig
+
+# Server
+node_modules/
+.wrangler/
+.dev.vars
+
+.DS_Store
